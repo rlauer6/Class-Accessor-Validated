@@ -1,93 +1,103 @@
 # NAME
 
-Class::Accessor::Validated - A drop-in companion for
-Class::Accessor::Fast with constructor validation
+Class::Accessor::Validated - Drop-in constructor validation for
+Class::Accessor::Fast-based classes
+
+# VERSION
+
+Version 0.03
 
 # SYNOPSIS
 
-    package My::Thing;
+    package MyApp::Thing;
 
-    use strict;
-    use warnings;
+    use parent 'Class::Accessor::Validated';
 
     our %ATTRIBUTES = (
-        name    => 1,  # required
-        color   => 0,  # optional
-        enabled => 0,
+        id   => 1,    # required
+        name => 0,    # optional
     );
 
-    __PACKAGE__->follow_best_practice;
-    __PACKAGE__->mk_accessors( keys %ATTRIBUTES );
+    __PACKAGE__->setup_accessors(keys %ATTRIBUTES);
 
-    use parent qw(Class::Accessor::Validated Class::Accessor::Fast);
-
-    package main;
-
-    my $thing = My::Thing->new({
-        name    => 'widget',
-        enabled => 1,
-    });
+    # Then in code:
+    my $thing = MyApp::Thing->new({ id => 123 });
 
 # DESCRIPTION
 
-`Class::Accessor::Validated` is a simple companion to
-[Class::Accessor::Fast](https://metacpan.org/pod/Class%3A%3AAccessor%3A%3AFast) that adds lightweight validation to your
-object constructors. If you've ever passed in an option to your class
-and wondered why it wasn't being respected it might have been because
-the class didn't take that option in the first place! This class will
-at least prevent you from passing in unimplemented options.
+`Class::Accessor::Validated` extends [Class::Accessor::Fast](https://metacpan.org/pod/Class%3A%3AAccessor%3A%3AFast) to add
+lightweight constructor-time validation for required and unexpected
+arguments.
 
-It is intended to be used as a subclass:
+It supports the same hashref-based constructor pattern, and requires
+you to define a `%ATTRIBUTES` hash in your class (or inherited from a
+parent class) to indicate which keys are required. Any key passed to
+the constructor must correspond to an existing accessor.
 
-    use parent qw(Class::Accessor::Validated);
+This module is designed to be a minimal and backward-compatible
+validator that requires no additional dependencies or heavy OO layers.
 
-It checks that only known attributes are passed to `new()`, and it
-enforces required attributes based on a hash your class must define:
+# ADDITIONAL DETAILS
 
-    our %ATTRIBUTES = (
-        foo => 1,   # required
-        bar => 0,   # optional
-    );
+This module can also be used immediately in new subclasses, even when
+the parent class does not itself inherit from
+`Class::Accessor::Validated`. As long as the subclass defines a
+`%ATTRIBUTES` hash and installs its accessors using setup\_accessors,
+the constructor validation will function correctly. This makes it
+possible to incrementally adopt validation in an existing hierarchy
+without modifying base classes - a practical solution for modernizing
+older code or introducing stricter argument checking in new layers of
+functionality.
 
-Any attribute with a true value is considered required. The rest are
-optional.  If unknown keys are passed, or required keys are missing,
-the constructor will `die()` with a descriptive error message.
-
-# USAGE
-
-To use `Class::Accessor::Validated`, your class must:
-
-- Declare a `%ATTRIBUTES` package variable that lists all valid
-constructor parameters.
-- Inherit from `Class::Accessor::Validated`.
-- Call `mk_accessors(keys %ATTRIBUTES)` to generate accessors.
-
-No additional methods are exported or injected - only the constructor
-is affected.
+Even in the absence of a `%ATTRIBUTES hash`, the constructor will
+still validate all arguments against the set of defined accessors. Any
+option that does not correspond to a known accessor (either get\_foo or
+foo) will be flagged as invalid. However, any option that does match a
+known accessor but is not listed in `%ATTRIBUTES` will be assumed to
+be optional. This allows subclasses to define additional accessors
+without needing to explicitly extend `%ATTRIBUTES`, and enables
+gradual adoption in codebases where base classes are not yet updated
+for validation.
 
 # METHODS AND SUBROUTINES
 
 ## new
 
-    my $object = My::Class->new(\%params);
+    my $obj = My::Class->new({ foo => 1, bar => 2 });
 
-Validates the constructor arguments against your class's
-`%ATTRIBUTES` hash.
+The constructor performs the following checks:
 
-Dies with a detailed message if:
+- Any key passed must match an existing accessor (`get_foo`, `foo`,
+etc.)
+- If a key is listed in `%ATTRIBUTES` with a true value, it is
+considered required
+- Keys not in `%ATTRIBUTES` are assumed optional as long as accessors
+exist
+- If invalid or missing keys are detected, the constructor throws an
+error
 
-- Any invalid keys are passed
-- Any required keys are missing
+## setup\_accessors
 
-Otherwise, it delegates to `SUPER::new()` and returns the constructed
-object.
+    Class::Accessor::Validated->setup_accessors(__PACKAGE__, @keys);
 
-_One small improvement(?) is that you may pass either a list of
-key/value pairs or a hash reference to the constrcutor._
+Convenience method to install accessors and apply
+`follow_best_practice` for the calling package. This avoids having to
+explicitly `use Class::Accessor` in each class.
+
+# USAGE PATTERN
+
+To use this module:
+
+- Inherit from `Class::Accessor::Validated`
+- Declare a `%ATTRIBUTES` hash in your package
+- Call `setup_accessors()` with the list of keys
+
+Subclasses do not need to redefine `%ATTRIBUTES` unless they want to
+introduce new required keys.
 
 # SEE ALSO
 
-[Class::Accessor::Fast](https://metacpan.org/pod/Class%3A%3AAccessor%3A%3AFast), [Class::Accessor](https://metacpan.org/pod/Class%3A%3AAccessor)
+[Class::Accessor](https://metacpan.org/pod/Class%3A%3AAccessor), [Class::Accessor::Fast](https://metacpan.org/pod/Class%3A%3AAccessor%3A%3AFast)
 
 # AUTHOR
 
@@ -95,5 +105,4 @@ Rob Lauer
 
 # LICENSE
 
-This module is free software. You can redistribute it and/or modify it
-under the same terms as Perl itself.
+This module is released under the same terms as Perl itself.

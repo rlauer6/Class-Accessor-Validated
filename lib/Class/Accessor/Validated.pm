@@ -3,52 +3,99 @@ package Class::Accessor::Validated;
 use strict;
 use warnings;
 
-use Data::Dumper;
 use Class::Accessor::Fast;
+use Class::Accessor;
 
-__PACKAGE__->follow_best_practice;
-use parent qw(Class::Accessor::Fast);
+use Exporter qw(import);
 
-our $VERSION = '0.01';
+our @EXPORT_OK = qw(setup_accessors);
+our $VERSION   = '0.03';
+
+use parent qw(Exporter Class::Accessor::Fast);
 
 ########################################################################
 sub new {
 ########################################################################
   my ( $class, @args ) = @_;
 
-  my $sym = $class . '::ATTRIBUTES';
+  my $arg_ref = ref $args[0] ? $args[0] : {@args};
+
+  my @bad_keys;
+
+  for my $maybe_valid_key ( keys %{$arg_ref} ) {
+    my $has_getter = $class->can("get_$maybe_valid_key");
+    my $has_raw    = $class->can($maybe_valid_key);
+    next if $has_getter || $has_raw;
+
+    push @bad_keys, $maybe_valid_key;
+  }
 
   no strict 'refs';
 
-  die "$class must define \%ATTRIBUTES\n"
-    if !defined *{$sym}{HASH};
+  my %required_keys;
 
-  my %attributes = %{ *{$sym}{HASH} };
+  for my $ancestor_class ( reverse _linear_isa($class) ) {
+    my $symbol   = $ancestor_class . '::ATTRIBUTES';
+    my $attr_ref = *{$symbol}{HASH};
+    next if !$attr_ref;
 
-  my $options = ref $args[0] ? $args[0] : {@args};
+    %required_keys = ( %required_keys, %{$attr_ref} );
+  }
 
-  my @invalid_args = grep { !exists $attributes{$_} } keys %{$options};
+  my @missing_required_keys;
+
+  for my $maybe_required_key ( keys %required_keys ) {
+    next if !$required_keys{$maybe_required_key};
+    next if exists $arg_ref->{$maybe_required_key};
+    push @missing_required_keys, $maybe_required_key;
+  }
 
   my @errors;
 
-  if (@invalid_args) {
-    push @errors, sprintf "invalid argument(s): %s\n", join q{,}, @invalid_args;
+  if (@bad_keys) {
+    push @errors, 'invalid argument(s): ' . join ', ', @bad_keys;
   }
 
-  my @required = grep { $attributes{$_} } keys %attributes;
-
-  my @required_args = grep { !exists $options->{$_} } @required;
-
-  if (@required_args) {
-    push @errors, sprintf "required argument(s): %s\n", join q{,}, @required_args;
+  if (@missing_required_keys) {
+    push @errors, 'required argument(s): ' . join ', ', @missing_required_keys;
   }
 
-  die @errors
-    if @errors;
+  if (@errors) {
+    die join '; ', @errors;
+  }
 
-  my $self = $class->SUPER::new($options);
+  return $class->SUPER::new($arg_ref);
+}
 
-  return $self;
+########################################################################
+sub setup_accessors {
+########################################################################
+  my ( $class, @keys ) = @_;
+  Class::Accessor->follow_best_practice($class);
+  Class::Accessor::Fast->mk_accessors( $class, @keys );
+
+  return 1;
+}
+
+########################################################################
+sub _linear_isa {
+########################################################################
+  my ($start_class) = @_;
+
+  no strict 'refs';  ## no critic
+
+  my @isa_list;
+  my %seen;
+  my @queue = ($start_class);
+
+  while ( my $current = shift @queue ) {
+    next if $seen{$current};
+    $seen{$current} = 1;
+    push @isa_list, $current;
+    unshift @queue, @{ $current . '::ISA' };
+  }
+
+  return @isa_list;
 }
 
 1;
@@ -59,115 +106,131 @@ __END__
 
 =head1 NAME
 
-Class::Accessor::Validated - A drop-in companion for
-Class::Accessor::Fast with constructor validation
+Class::Accessor::Validated - Drop-in constructor validation for
+Class::Accessor::Fast-based classes
+
+=head1 VERSION
+
+Version 0.03
 
 =head1 SYNOPSIS
 
- package My::Thing;
+    package MyApp::Thing;
 
- use strict;
- use warnings;
+    use parent 'Class::Accessor::Validated';
 
- our %ATTRIBUTES = (
-     name    => 1,  # required
-     color   => 0,  # optional
-     enabled => 0,
- );
+    our %ATTRIBUTES = (
+        id   => 1,    # required
+        name => 0,    # optional
+    );
 
- __PACKAGE__->follow_best_practice;
- __PACKAGE__->mk_accessors( keys %ATTRIBUTES );
+    __PACKAGE__->setup_accessors(keys %ATTRIBUTES);
 
- use parent qw(Class::Accessor::Validated Class::Accessor::Fast);
-
- package main;
-
- my $thing = My::Thing->new({
-     name    => 'widget',
-     enabled => 1,
- });
+    # Then in code:
+    my $thing = MyApp::Thing->new({ id => 123 });
 
 =head1 DESCRIPTION
 
-C<Class::Accessor::Validated> is a simple companion to
-L<Class::Accessor::Fast> that adds lightweight validation to your
-object constructors. If you've ever passed in an option to your class
-and wondered why it wasn't being respected it might have been because
-the class didn't take that option in the first place! This class will
-at least prevent you from passing in unimplemented options.
+C<Class::Accessor::Validated> extends L<Class::Accessor::Fast> to add
+lightweight constructor-time validation for required and unexpected
+arguments.
 
-It is intended to be used as a subclass:
+It supports the same hashref-based constructor pattern, and requires
+you to define a C<%ATTRIBUTES> hash in your class (or inherited from a
+parent class) to indicate which keys are required. Any key passed to
+the constructor must correspond to an existing accessor.
 
- use parent qw(Class::Accessor::Validated);
+This module is designed to be a minimal and backward-compatible
+validator that requires no additional dependencies or heavy OO layers.
 
-It checks that only known attributes are passed to C<new()>, and it
-enforces required attributes based on a hash your class must define:
+=head1 ADDITIONAL DETAILS
 
- our %ATTRIBUTES = (
-     foo => 1,   # required
-     bar => 0,   # optional
- );
+This module can also be used immediately in new subclasses, even when
+the parent class does not itself inherit from
+C<Class::Accessor::Validated>. As long as the subclass defines a
+C<%ATTRIBUTES> hash and installs its accessors using setup_accessors,
+the constructor validation will function correctly. This makes it
+possible to incrementally adopt validation in an existing hierarchy
+without modifying base classes - a practical solution for modernizing
+older code or introducing stricter argument checking in new layers of
+functionality.
 
-Any attribute with a true value is considered required. The rest are
-optional.  If unknown keys are passed, or required keys are missing,
-the constructor will C<die()> with a descriptive error message.
-
-=head1 USAGE
-
-To use C<Class::Accessor::Validated>, your class must:
-
-=over 4
-
-=item *
-
-Declare a C<%ATTRIBUTES> package variable that lists all valid
-constructor parameters.
-
-=item *
-
-Inherit from C<Class::Accessor::Validated>.
-
-=item *
-
-Call C<mk_accessors(keys %ATTRIBUTES)> to generate accessors.
-
-=back
-
-No additional methods are exported or injected - only the constructor
-is affected.
+Even in the absence of a C<%ATTRIBUTES hash>, the constructor will
+still validate all arguments against the set of defined accessors. Any
+option that does not correspond to a known accessor (either get_foo or
+foo) will be flagged as invalid. However, any option that does match a
+known accessor but is not listed in C<%ATTRIBUTES> will be assumed to
+be optional. This allows subclasses to define additional accessors
+without needing to explicitly extend C<%ATTRIBUTES>, and enables
+gradual adoption in codebases where base classes are not yet updated
+for validation.
 
 =head1 METHODS AND SUBROUTINES
 
 =head2 new
 
- my $object = My::Class->new(\%params);
+  my $obj = My::Class->new({ foo => 1, bar => 2 });
 
-Validates the constructor arguments against your class's
-C<%ATTRIBUTES> hash.
-
-Dies with a detailed message if:
+The constructor performs the following checks:
 
 =over 4
 
 =item *
 
-Any invalid keys are passed
+Any key passed must match an existing accessor (C<get_foo>, C<foo>,
+etc.)
 
 =item *
 
-Any required keys are missing
+If a key is listed in C<%ATTRIBUTES> with a true value, it is
+considered required
+
+=item *
+
+Keys not in C<%ATTRIBUTES> are assumed optional as long as accessors
+exist
+
+=item *
+
+If invalid or missing keys are detected, the constructor throws an
+error
 
 =back
 
-Otherwise, it delegates to C<SUPER::new()> and returns the constructed
-object.
+=head2 setup_accessors
 
-I<One small improvement(?) is that you may pass either a list of
-key/value pairs or a hash reference to the constrcutor.>
+  Class::Accessor::Validated->setup_accessors(__PACKAGE__, @keys);
+
+Convenience method to install accessors and apply
+C<follow_best_practice> for the calling package. This avoids having to
+explicitly C<use Class::Accessor> in each class.
+
+=head1 USAGE PATTERN
+
+To use this module:
+
+=over 4
+
+=item *
+
+Inherit from C<Class::Accessor::Validated>
+
+=item *
+
+Declare a C<%ATTRIBUTES> hash in your package
+
+=item *
+
+Call C<setup_accessors()> with the list of keys
+
+=back
+
+Subclasses do not need to redefine C<%ATTRIBUTES> unless they want to
+introduce new required keys.
 
 =head1 SEE ALSO
 
-L<Class::Accessor::Fast>, L<Class::Accessor>
+L<Class::Accessor>, L<Class::Accessor::Fast>
 
 =head1 AUTHOR
 
@@ -175,7 +238,6 @@ Rob Lauer
 
 =head1 LICENSE
 
-This module is free software. You can redistribute it and/or modify it
-under the same terms as Perl itself.
+This module is released under the same terms as Perl itself.
 
 =cut
