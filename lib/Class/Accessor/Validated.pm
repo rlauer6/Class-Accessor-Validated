@@ -9,7 +9,9 @@ use Class::Accessor;
 use Exporter qw(import);
 
 our @EXPORT_OK = qw(setup_accessors);
-our $VERSION   = '0.03';
+our $VERSION   = '0.04';
+
+our $FOLLOW_BAD_PRACTICE = 0;
 
 use parent qw(Exporter Class::Accessor::Fast);
 
@@ -23,9 +25,11 @@ sub new {
   my @bad_keys;
 
   for my $maybe_valid_key ( keys %{$arg_ref} ) {
-    my $has_getter = $class->can("get_$maybe_valid_key");
-    my $has_raw    = $class->can($maybe_valid_key);
-    next if $has_getter || $has_raw;
+    my $follows_best_practice = $class->can("set_$maybe_valid_key") && $class->can("get_$maybe_valid_key");
+
+    my $follows_bad_practice = $FOLLOW_BAD_PRACTICE && $class->can($maybe_valid_key);
+
+    next if $follows_best_practice || $follows_bad_practice;
 
     push @bad_keys, $maybe_valid_key;
   }
@@ -111,7 +115,7 @@ Class::Accessor::Fast-based classes
 
 =head1 VERSION
 
-Version 0.03
+Version 0.04
 
 =head1 SYNOPSIS
 
@@ -157,13 +161,17 @@ functionality.
 
 Even in the absence of a C<%ATTRIBUTES hash>, the constructor will
 still validate all arguments against the set of defined accessors. Any
-option that does not correspond to a known accessor (either get_foo or
-foo) will be flagged as invalid. However, any option that does match a
-known accessor but is not listed in C<%ATTRIBUTES> will be assumed to
-be optional. This allows subclasses to define additional accessors
-without needing to explicitly extend C<%ATTRIBUTES>, and enables
-gradual adoption in codebases where base classes are not yet updated
-for validation.
+option that does not correspond to known accessors (either get_foo and
+set_foo or just foo) will be flagged as invalid. 
+
+B<You are encouraged to C<follow_best_practice> since methods that are
+not named C<set_> or C<get_> may be mistaken for accessors.>
+
+However, any option that does match a known accessor but is not listed
+in C<%ATTRIBUTES> will be assumed to be optional. This allows
+subclasses to define additional accessors without needing to
+explicitly extend C<%ATTRIBUTES>, and enables gradual adoption in
+codebases where base classes are not yet updated for validation.
 
 =head1 METHODS AND SUBROUTINES
 
@@ -204,6 +212,18 @@ error
 Convenience method to install accessors and apply
 C<follow_best_practice> for the calling package. This avoids having to
 explicitly C<use Class::Accessor> in each class.
+
+=head1 GLOBAL VARIABLES
+
+=head2 $Class::Accessor::Validated::ALLOW_BAD_PRACTICE
+
+If set to a true value, constructor validation will accept any method
+name (e.g., C<foo>) as a valid accessor, even if it does not follow
+the C<get_foo>/C<set_foo> naming pattern. This is useful for backward
+compatibility with older C<Class::Accessor::Fast> code.
+
+Defaults to false. Best practice is to use C<follow_best_practice> so
+that accessors are unambiguously named and validated.
 
 =head1 USAGE PATTERN
 

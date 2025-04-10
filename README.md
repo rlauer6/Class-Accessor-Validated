@@ -5,7 +5,7 @@ Class::Accessor::Fast-based classes
 
 # VERSION
 
-Version 0.03
+Version 0.04
 
 # SYNOPSIS
 
@@ -51,13 +51,17 @@ functionality.
 
 Even in the absence of a `%ATTRIBUTES hash`, the constructor will
 still validate all arguments against the set of defined accessors. Any
-option that does not correspond to a known accessor (either get\_foo or
-foo) will be flagged as invalid. However, any option that does match a
-known accessor but is not listed in `%ATTRIBUTES` will be assumed to
-be optional. This allows subclasses to define additional accessors
-without needing to explicitly extend `%ATTRIBUTES`, and enables
-gradual adoption in codebases where base classes are not yet updated
-for validation.
+option that does not correspond to known accessors (either get\_foo and
+set\_foo or just foo) will be flagged as invalid. 
+
+**You are encouraged to `follow_best_practice` since methods that are
+not named `set_` or `get_` may be mistaken for accessors.**
+
+However, any option that does match a known accessor but is not listed
+in `%ATTRIBUTES` will be assumed to be optional. This allows
+subclasses to define additional accessors without needing to
+explicitly extend `%ATTRIBUTES`, and enables gradual adoption in
+codebases where base classes are not yet updated for validation.
 
 # METHODS AND SUBROUTINES
 
@@ -83,6 +87,18 @@ error
 Convenience method to install accessors and apply
 `follow_best_practice` for the calling package. This avoids having to
 explicitly `use Class::Accessor` in each class.
+
+# GLOBAL VARIABLES
+
+## $Class::Accessor::Validated::ALLOW\_BAD\_PRACTICE
+
+If set to a true value, constructor validation will accept any method
+name (e.g., `foo`) as a valid accessor, even if it does not follow
+the `get_foo`/`set_foo` naming pattern. This is useful for backward
+compatibility with older `Class::Accessor::Fast` code.
+
+Defaults to false. Best practice is to use `follow_best_practice` so
+that accessors are unambiguously named and validated.
 
 # USAGE PATTERN
 
